@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Band Mix</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg">
+<meta name="theme-color" content="#12161c">
+<style>
+  :root { --bg:#12161c; --card:#1b212a; --line:#2c3542; --text:#e9edf2; --dim:#9aa7b6; --accent:#4da3ff; --good:#3ecf8e; --warn:#f2b340; --bad:#ff6b6b; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f3f5f8; --card:#fff; --line:#d7dde5; --text:#17202b; --dim:#5b6878; --accent:#1769d1; --good:#12875a; --warn:#a56a00; --bad:#c62828; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.45 system-ui,sans-serif; }
+  header, main { max-width:560px; margin:0 auto; padding:0 16px; }
+  header { padding-top:18px; }
+  h1 { margin:0; font-size:24px; }
+  h2 { margin:0 0 10px; font-size:17px; }
+  .sub, .dim { color:var(--dim); font-size:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; margin:14px 0; }
+  .row { display:flex; gap:8px; align-items:center; margin:8px 0; }
+  .row > .grow { flex:1; min-width:0; }
+  input, select, button { font:inherit; color:inherit; border-radius:10px; border:1px solid var(--line); background:var(--bg); padding:11px 12px; min-height:46px; }
+  input { width:100%; }
+  button { cursor:pointer; background:var(--card); }
+  button.main { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; width:100%; }
+  button:disabled { opacity:.45; }
+  button.x { min-width:46px; padding:0; }
+  .meter { height:16px; background:var(--bg); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .meter > i { display:block; height:100%; width:0; background:var(--good); }
+  .status { font-weight:600; margin:10px 0 4px; }
+  .good { color:var(--good); } .warn { color:var(--warn); } .bad { color:var(--bad); }
+  .done { color:var(--good); font-size:14px; white-space:nowrap; }
+  .score { font-size:44px; font-weight:700; line-height:1; }
+  ol.fixes { padding-left:22px; margin:12px 0; }
+  ol.fixes li { margin:10px 0; }
+  .bars { display:flex; gap:3px; align-items:flex-end; height:44px; }
+  .bars i { flex:1; background:var(--accent); border-radius:2px 2px 0 0; min-height:2px; }
+  .barlabels { display:flex; gap:3px; font-size:10px; color:var(--dim); }
+  .barlabels span { flex:1; text-align:center; }
+  #rec { position:fixed; inset:0; background:var(--bg); display:none; flex-direction:column; align-items:center; justify-content:center; gap:16px; padding:24px; text-align:center; z-index:5; }
+  #rec.on { display:flex; }
+  #rec .count { font-size:84px; font-weight:700; line-height:1; }
+  #rec .meter { width:100%; max-width:420px; }
+  details { margin-top:10px; }
+  summary { cursor:pointer; color:var(--dim); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Band Mix</h1>
+  <p class="sub">Set up at the start of rehearsal. Put the phone in one spot and leave it there.</p>
+</header>
+<main>
+  <section class="card">
+    <h2>1. Room and band</h2>
+    <div class="row">
+      <input id="room" class="grow" placeholder="Room name" list="rooms" autocomplete="off">
+      <datalist id="rooms"></datalist>
+    </div>
+    <div id="players"></div>
+    <div class="row">
+      <input id="newName" class="grow" placeholder="Name" autocomplete="off">
+      <select id="newInst"></select>
+      <button id="add">Add</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>2. Mic check</h2>
+    <p class="dim">Ear height, away from walls and corners, not dead centre of the room. Have the whole band play at full volume.</p>
+    <button id="micOn" class="main">Turn on the mic</button>
+    <div id="micLive" hidden>
+      <div class="meter"><i id="lvl"></i></div>
+      <div id="micStatus" class="status"></div>
+      <div id="micNote" class="dim"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>3. Soundcheck</h2>
+    <p class="dim">Each person plays alone for 30 seconds, as they would in a song. Everyone else stays quiet. Then the whole band plays.</p>
+    <div id="takes"></div>
+  </section>
+
+  <section class="card" id="results" hidden>
+    <h2>4. The mix</h2>
+    <div id="out"></div>
+  </section>
+</main>
+
+<div id="rec">
+  <div id="recWho" style="font-size:22px;font-weight:600"></div>
+  <div class="count" id="recCount">30</div>
+  <div class="meter"><i id="recLvl"></i></div>
+  <div id="recWarn" class="bad"></div>
+  <button id="recStop">Stop</button>
+</div>
+
+<script src="analyse.js"></script>
+<script>
+const { BANDS, INSTS, analyse, toDb } = BandMix;
+const TAKE_SECONDS = 30, MIN_SECONDS = 8, TICK_MS = 100, CLIP = 0.98;
+const DEMO = new URLSearchParams(location.search).get('demo');
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// ---------- saved state ----------
+const KEY = 'bandmix.v1';
+let store = { rooms: {}, lastRoom: '' };
+try { store = Object.assign(store, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch (e) {}
+function save() {
+  if (state.room) {
+    store.rooms[state.room] = { players: state.players.map((p) => ({ name: p.name, inst: p.inst })), lastScore: state.result ? state.result.score : null };
+    store.lastRoom = state.room;
+  }
+  try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {}
+}
+
+const state = { room: store.lastRoom || '', players: [], full: null, result: null, before: null, mic: null };
+function loadRoom(name) {
+  state.room = name;
+  const r = store.rooms[name];
+  if (r) state.players = r.players.map((p) => ({ name: p.name, inst: p.inst, solo: null, clipped: false }));
+  state.full = null; state.result = null; state.before = null;
+}
+if (state.room) loadRoom(state.room);
+
+// ---------- audio ----------
+let ctx, analyser, timeBuf, freqBuf, binRanges, demoNode, take = null;
+const recent = []; // last 3 s of peaks for the mic check
+
+async function micOn() {
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  analyser = ctx.createAnalyser();
+  analyser.fftSize = 8192;
+  analyser.smoothingTimeConstant = 0;
+  let levelling = 'off';
+  if (DEMO) {
+    setDemo('idle');
+  } else {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 } });
+    const s = stream.getAudioTracks()[0].getSettings();
+    if (s.autoGainControl || s.noiseSuppression) levelling = 'on';
+    ctx.createMediaStreamSource(stream).connect(analyser);
+  }
+  timeBuf = new Float32Array(analyser.fftSize);
+  freqBuf = new Float32Array(analyser.frequencyBinCount);
+  const hzPerBin = ctx.sampleRate / analyser.fftSize;
+  binRanges = BANDS.map((b) => [Math.max(1, Math.round(b.lo / hzPerBin)), Math.min(freqBuf.length - 1, Math.round(b.hi / hzPerBin))]);
+  state.mic = { levelling };
+  if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {});
+  setInterval(tick, TICK_MS);
+  $('micOn').hidden = true; $('micLive').hidden = false;
+  render();
+}
+
+function tick() {
+  analyser.getFloatTimeDomainData(timeBuf);
+  let peak = 0, sq = 0;
+  for (let i = 0; i < timeBuf.length; i++) { const a = Math.abs(timeBuf[i]); if (a > peak) peak = a; sq += a * a; }
+  const rmsDb = toDb(sq / timeBuf.length);
+  const width = Math.max(0, Math.min(100, (rmsDb + 60) / 60 * 100)) + '%';
+  recent.push(peak); if (recent.length > 3000 / TICK_MS) recent.shift();
+  const clips = recent.filter((p) => p >= CLIP).length, top = Math.max(...recent);
+  let cls = 'good', msg = 'Mic is coping.';
+  if (clips) { cls = 'bad'; msg = 'Too loud for this mic here. Move the phone further from the amps and drums.'; }
+  else if (top > 0.7) { cls = 'warn'; msg = 'Close to the limit. A little further back would be safer.'; }
+  else if (top < 0.01) { cls = 'warn'; msg = 'Very quiet. Is anyone playing?'; }
+  $('lvl').style.width = width; $('lvl').style.background = `var(--${cls})`;
+  $('micStatus').className = 'status ' + cls; $('micStatus').textContent = msg;
+  state.mic.status = msg; state.mic.peakDb = Math.round(20 * Math.log10(Math.max(top, 1e-6)));
+  $('micNote').textContent = state.mic.levelling === 'on'
+    ? 'This phone would not switch off its automatic volume levelling, so loudness comparisons are rougher.'
+    : 'Automatic volume levelling is off.';
+
+  if (!take) return;
+  analyser.getFloatFrequencyData(freqBuf);
+  binRanges.forEach(([lo, hi], b) => {
+    let s = 0;
+    for (let i = lo; i <= hi; i++) s += Math.pow(10, freqBuf[i] / 10);
+    take.sum[b] += s;
+  });
+  take.n++; if (peak >= CLIP) take.clips++;
+  const left = Math.ceil(TAKE_SECONDS - (performance.now() - take.t0) / 1000);
+  $('recCount').textContent = Math.max(0, left);
+  $('recLvl').style.width = width; $('recLvl').style.background = `var(--${cls})`;
+  $('recWarn').textContent = take.clips ? 'Distorting. Move the phone back and redo this take.' : '';
+  if (left <= 0) endTake(true);
+}
+
+function startTake(target) {
+  take = { target, sum: new Array(BANDS.length).fill(0), n: 0, clips: 0, t0: performance.now() };
+  if (DEMO) setDemo(target);
+  $('recWho').textContent = target === 'full' ? 'Whole band: play together' : `${state.players[target].name}: play alone`;
+  $('recCount').textContent = TAKE_SECONDS; $('recWarn').textContent = '';
+  $('rec').classList.add('on');
+}
+
+function endTake(keep) {
+  const t = take; take = null;
+  $('rec').classList.remove('on');
+  if (DEMO) setDemo('idle');
+  const seconds = t.n * TICK_MS / 1000;
+  if (!keep && seconds < MIN_SECONDS) return render();
+  const reading = t.sum.map((s) => toDb(s / t.n));
+  const clipped = t.clips / t.n > 0.02;
+  if (t.target === 'full') { state.full = reading; state.fullClipped = clipped; }
+  else { state.players[t.target].solo = reading; state.players[t.target].clipped = clipped; }
+  compute(); render();
+}
+
+function compute() {
+  const ready = state.full && state.players.filter((p) => p.solo).length >= 2;
+  state.result = ready ? analyse(state.players, state.full) : null;
+  save();
+}
+
+// Made-up sound for testing without a band: open the page with ?demo=1 (or ?demo=loud).
+function setDemo(target) {
+  if (demoNode) demoNode.disconnect();
+  const out = ctx.createGain();
+  const voice = (inst, i, gain) => {
+    const buf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate), d = buf.getChannelData(0);
+    for (let k = 0; k < d.length; k++) d[k] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+    const f = ctx.createBiquadFilter(), g = ctx.createGain();
+    if (inst === 'bass') { f.type = 'lowpass'; f.frequency.value = 180; g.gain.value = 0.5; }
+    else if (inst === 'drums') { f.type = 'lowpass'; f.frequency.value = 6000; g.gain.value = 0.05; }
+    else if (inst === 'vocals') { f.type = 'bandpass'; f.frequency.value = 2200; g.gain.value = 0.2; }
+    else { f.type = 'bandpass'; f.frequency.value = 750; f.Q.value = 0.7; g.gain.value = i === 0 ? 0.08 : 0.3; }
+    g.gain.value *= gain;
+    src.connect(f); f.connect(g); g.connect(out); src.start();
+  };
+  const loud = DEMO === 'loud' ? 300 : 1;
+  if (target === 'idle') voice('drums', 0, 0.2 * loud);
+  else if (target === 'full') state.players.forEach((p, i) => voice(p.inst, i, 1));
+  else voice(state.players[target].inst, target, 1);
+  out.connect(analyser);
+  demoNode = out;
+}
+
+// ---------- screen ----------
+function bars(reading) {
+  const max = Math.max(...reading);
+  return '<div class="bars">' + reading.map((v) => `<i style="height:${Math.max(4, 100 + (v - max) * 2.5)}%"></i>`).join('') + '</div>'
+    + '<div class="barlabels">' + BANDS.map((b) => `<span>${b.label}</span>`).join('') + '</div>';
+}
+
+function render() {
+  $('room').value = state.room;
+  $('rooms').innerHTML = Object.keys(store.rooms).map((r) => `<option value="${esc(r)}">`).join('');
+  $('players').innerHTML = state.players.map((p, i) =>
+    `<div class="row"><div class="grow"><b>${esc(p.name)}</b> <span class="dim">${INSTS[p.inst].label}</span></div><button class="x" data-del="${i}" aria-label="Remove ${esc(p.name)}">✕</button></div>`).join('')
+    || '<p class="dim">Add everyone who is playing today.</p>';
+
+  const on = !!state.mic;
+  const takeRow = (label, target, done, clipped) =>
+    `<div class="row"><div class="grow"><b>${label}</b>${clipped ? '<div class="bad" style="font-size:14px">Distorted take. Move the phone back and redo it.</div>' : ''}</div>`
+    + (done ? '<span class="done">✓ heard</span>' : '')
+    + `<button data-take="${target}" ${on ? '' : 'disabled'}>${done ? 'Redo' : 'Record'}</button></div>`;
+  $('takes').innerHTML = (on ? '' : '<p class="warn">Turn on the mic first.</p>')
+    + state.players.map((p, i) => takeRow(`${esc(p.name)} <span class="dim">alone</span>`, i, !!p.solo, p.clipped)).join('')
+    + (state.players.length ? takeRow('Whole band', 'full', !!state.full, state.fullClipped) : '');
+
+  const r = state.result;
+  $('results').hidden = !r;
+  if (!r) return;
+  const delta = state.before == null ? '' : `<div class="dim">Before ${state.before} → now ${r.score}</div>`;
+  $('out').innerHTML =
+    `<div class="row"><div class="score">${r.score}</div><div class="grow dim">out of 100.<br>Higher means everyone has more room.</div></div>${delta}`
+    + (r.fixes.length
+      ? '<ol class="fixes">' + r.fixes.map((f) => `<li>${esc(f.text)}</li>`).join('') + '</ol>'
+      : '<p class="good"><b>Nothing stands out.</b> Everyone has room to be heard.</p>')
+    + '<button id="copy" class="main">Copy for Claude</button>'
+    + '<p class="dim">Paste it into Claude for exact knob and slider settings.</p>'
+    + '<button id="again" style="width:100%">We made changes: check again</button>'
+    + '<details><summary>What the phone heard</summary>'
+    + state.players.filter((p) => p.solo).map((p) => `<p><b>${esc(p.name)}</b></p>${bars(p.solo)}`).join('')
+    + `<p><b>Whole band</b></p>${bars(state.full)}</details>`;
+}
+
+function copyText() {
+  const ref = Math.max(...state.full);
+  const line = (r) => r.map((v) => Math.round(v - ref)).join(' ');
+  const out = [
+    'mix: Band Mix reading',
+    `room: ${state.room || 'not named'}`,
+    `date: ${new Date().toISOString().slice(0, 10)}`,
+    `mic: ${state.mic.status} Peak ${state.mic.peakDb} dBFS. Automatic levelling ${state.mic.levelling}.`,
+    `bands_hz: ${BANDS.map((b) => b.label).join(' ')}`,
+    'levels are dB, where 0 is the loudest band of the whole band',
+    ...state.players.filter((p) => p.solo).map((p) => `player: ${p.name} | ${p.inst} | ${line(p.solo)}${p.clipped ? ' | distorted take' : ''}`),
+    `whole_band: ${line(state.full)}${state.fullClipped ? ' | distorted take' : ''}`,
+    `score: ${state.result.score}${state.before == null ? '' : ` (before: ${state.before})`}`,
+    ...(state.result.fixes.length ? state.result.fixes.map((f, i) => `app_fix_${i + 1}: ${f.text}`) : ['app_fix: none']),
+  ].join('\n');
+  const done = () => { $('copy').textContent = 'Copied'; };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(out).then(done, () => fallback());
+  else fallback();
+  function fallback() {
+    const t = document.createElement('textarea'); t.value = out; document.body.appendChild(t); t.select();
+    document.execCommand('copy'); t.remove(); done();
+  }
+  return out;
+}
+
+// ---------- wiring ----------
+$('newInst').innerHTML = Object.entries(INSTS).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('');
+$('room').addEventListener('change', (e) => {
+  const name = e.target.value.trim();
+  if (store.rooms[name]) loadRoom(name); else state.room = name;
+  save(); render();
+});
+$('add').addEventListener('click', () => {
+  const name = $('newName').value.trim();
+  if (!name) return $('newName').focus();
+  state.players.push({ name, inst: $('newInst').value, solo: null, clipped: false });
+  $('newName').value = '';
+  compute(); render();
+});
+$('players').addEventListener('click', (e) => {
+  const i = e.target.dataset.del;
+  if (i == null) return;
+  state.players.splice(+i, 1);
+  compute(); render();
+});
+$('micOn').addEventListener('click', () => micOn().catch((err) => {
+  $('micOn').hidden = false; $('micLive').hidden = false;
+  $('micStatus').className = 'status bad';
+  $('micStatus').textContent = 'Could not open the mic. Allow microphone access for this page and try again.';
+  $('micNote').textContent = String(err && err.message || err);
+}));
+$('takes').addEventListener('click', (e) => {
+  const t = e.target.dataset.take;
+  if (t == null) return;
+  startTake(t === 'full' ? 'full' : +t);
+});
+$('recStop').addEventListener('click', () => endTake(false));
+$('out').addEventListener('click', (e) => {
+  if (e.target.id === 'copy') copyText();
+  if (e.target.id === 'again') {
+    state.before = state.result.score;
+    state.full = null; state.result = null;
+    render();
+    $('takes').scrollIntoView({ behavior: 'smooth' });
+    $('takes').insertAdjacentHTML('afterbegin', '<p class="dim">Redo the take of anyone who changed a setting, then record the whole band again.</p>');
+  }
+});
+if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+render();
+</script>
+</body>
+</html>
