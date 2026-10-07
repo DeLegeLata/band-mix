@@ -1,7 +1,7 @@
 {
   "name": "Band Mix",
   "short_name": "Band Mix",
-  "id": "/band-mix/",
+  "id": "/band-mix/app",
   "start_url": "/band-mix/",
   "scope": "/band-mix/",
   "display": "standalone",
