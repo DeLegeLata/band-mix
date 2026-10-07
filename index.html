@@ -52,6 +52,7 @@
 <header>
   <h1>Band Mix</h1>
   <p class="sub">Set up at the start of rehearsal. Put the phone in one spot and leave it there.</p>
+  <button id="install" hidden>Install as an app</button>
 </header>
 <main>
   <section class="card">
@@ -348,6 +349,16 @@ $('out').addEventListener('click', (e) => {
     $('takes').scrollIntoView({ behavior: 'smooth' });
     $('takes').insertAdjacentHTML('afterbegin', '<p class="dim">Redo the take of anyone who changed a setting, then record the whole band again.</p>');
   }
+});
+// Chrome's own menu refuses to install a second app from the same web address as Woodshed,
+// so the page offers the install itself.
+let installEvt = null;
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installEvt = e; $('install').hidden = false; });
+window.addEventListener('appinstalled', () => { $('install').hidden = true; });
+$('install').addEventListener('click', () => {
+  if (!installEvt) return;
+  installEvt.prompt();
+  installEvt.userChoice.then(() => { installEvt = null; $('install').hidden = true; });
 });
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
 render();
