@@ -28,3 +28,10 @@ Score is 100 minus 3 per dB of problem. Top three fixes shown.
 
 Whole-session listening, solos, the walk-around sweet-spot finder, iPhone testing, per-song settings.
 The amp's knobs and most pedal makes are not recorded in the skill yet.
+
+## Installing on Android
+
+Chrome's menu ("Install and create shortcut") says "already installed" for any page on
+delegelata.github.io, because Woodshed is installed from the same address and Chrome checks the whole
+site, not the app. The page's own "Install as an app" button gets around it. Installed on the phone
+2026-10-07 this way.
