@@ -250,6 +250,17 @@ function bars(reading) {
     + '<div class="barlabels">' + BANDS.map((b) => `<span>${b.label}</span>`).join('') + '</div>';
 }
 
+// The app compares players with each other, so it has nothing to say until it has heard
+// two of them alone and everyone together. Say what is still missing.
+function todoNote() {
+  if (state.result) return '';
+  const heard = state.players.filter((p) => p.solo).length, todo = [];
+  if (state.players.length < 2) todo.push('add at least two players in step 1');
+  else if (heard < 2) todo.push(heard ? 'record one more player alone' : 'record two players alone');
+  if (!state.full) todo.push('record the whole band');
+  return `<p class="warn">No advice yet. The app compares players with each other, so it needs two players recorded alone and the whole band together. Still to do: ${todo.join(', then ')}.</p>`;
+}
+
 function render() {
   $('room').value = state.room;
   $('rooms').innerHTML = Object.keys(store.rooms).map((r) => `<option value="${esc(r)}">`).join('');
@@ -264,7 +275,8 @@ function render() {
     + `<button data-take="${target}" ${on ? '' : 'disabled'}>${done ? 'Redo' : 'Record'}</button></div>`;
   $('takes').innerHTML = (on ? '' : '<p class="warn">Turn on the mic first.</p>')
     + state.players.map((p, i) => takeRow(`${esc(p.name)} <span class="dim">alone</span>`, i, !!p.solo, p.clipped)).join('')
-    + (state.players.length ? takeRow('Whole band', 'full', !!state.full, state.fullClipped) : '');
+    + (state.players.length ? takeRow('Whole band', 'full', !!state.full, state.fullClipped) : '')
+    + todoNote();
 
   const r = state.result;
   $('results').hidden = !r;
