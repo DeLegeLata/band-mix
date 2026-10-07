@@ -1,6 +1,6 @@
 // Network first, saved copy second, so the page still opens in a room with no signal.
-const CACHE = 'bandmix-v1';
-const FILES = ['./', 'index.html', 'analyse.js', 'manifest.webmanifest', 'icon.svg'];
+const CACHE = 'bandmix-v2';
+const FILES = ['./', 'index.html', 'analyse.js', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 self.addEventListener('install', (e) => e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting())));
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener('fetch', (e) => {
